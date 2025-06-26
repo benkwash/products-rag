@@ -1,12 +1,13 @@
-import { app } from './app.js'
-import { connectDb, disconnectDb } from './config/db.js'
+import 'dotenv/config'
+import { app } from './app'
+import { connectDb, disconnectDb } from './config/db'
 
-const startServer = async () => {
+const startServer = async (): Promise<void> => {
   try {
     await connectDb()
     console.log('Database connected successfully')
 
-    const PORT = process.env.PORT || 3000
+    const PORT = 3000
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`)
     })

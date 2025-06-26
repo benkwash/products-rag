@@ -1,5 +1,5 @@
 import { Client } from 'pg'
-import { env } from './env.js'
+import { env } from './env'
 
 const { user, password, host, name, port } = env.db
 const openAIApiKey = env.openAIApiKey
@@ -10,7 +10,7 @@ export const client = new Client({
   connectionString
 })
 
-export const connectDb = async () => {
+export const connectDb = async (): Promise<void> => {
   try {
     await client.connect()
     console.log('Connected to postgres successfully')
@@ -19,7 +19,7 @@ export const connectDb = async () => {
   }
 }
 
-export const disconnectDb = async () => {
+export const disconnectDb = async (): Promise<void> => {
   try {
     await client.end()
     console.log('Disconnected from postgres successfully')
@@ -28,7 +28,10 @@ export const disconnectDb = async () => {
   }
 }
 
-export const query = async (query, values) => {
+export const query = async <T>(
+  query: string,
+  values?: unknown[]
+): Promise<T[]> => {
   try {
     const { rows } = await client.query(query, values)
     return rows
