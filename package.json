@@ -1,0 +1,28 @@
+{
+  "name": "vector-db-test",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:up": "docker compose -f ./deploy/docker-compose.yml up -d postgres pgadmin",
+    "db:down": "docker compose -f ./deploy/docker-compose.yml down",
+    "db:down:v": "docker compose -f ./deploy/docker-compose.yml down",
+    "seed:db": "node --env-file .env ./src/scripts/seed-db.js",
+    "search:db": "node --env-file .env ./src/scripts/search.js",
+    "dev": "node --env-file .env ./src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "express": "^5.1.0",
+    "openai": "^5.7.0",
+    "pdf-parse": "^1.1.1",
+    "pdf.js-extract": "^0.2.1",
+    "pdf2json": "^3.1.4",
+    "pdfjs-dist": "^5.1.91",
+    "pg": "^8.16.2",
+    "pgvector": "^0.2.1"
+  }
+}
