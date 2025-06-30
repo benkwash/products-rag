@@ -10,14 +10,10 @@ export const app = express()
   .get('/search', async (req, res) => {
     const searchQuery = req.query.search
     try {
-      // const queryString = `
-      //     SELECT id, name
-      //     FROM products
-      //     ORDER BY embeddings <=> ai.openai_embed('text-embedding-3-small', $1)
-      //     LIMIT 10;
-      //   `
-      // const values = [searchQuery]
-      // const results = await query(queryString, values)
+      if (!searchQuery || typeof searchQuery !== 'string') {
+        res.status(400).send('Invalid search query')
+        return
+      }
       const results = await getBestProduct(searchQuery as string)
 
       res.status(200).json(results)
