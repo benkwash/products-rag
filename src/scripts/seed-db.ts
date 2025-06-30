@@ -1,11 +1,10 @@
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { join } from 'path'
 import { PDFExtract } from 'pdf.js-extract'
-import { connectDb, disconnectDb, query } from '../config/db.js'
+import { connectDb, disconnectDb, query } from '../config/db'
 
 const readDataFromPDF = async (fileName) => {
-  const __dirname = dirname(fileURLToPath(import.meta.url))
-  const filePath = join(__dirname, 'data', fileName)
+  const __dirname = process.cwd()
+  const filePath = join(__dirname, 'src', 'scripts', 'data', fileName)
   try {
     const pdfExtract = new PDFExtract()
     const data = await pdfExtract.extract(filePath, {})
