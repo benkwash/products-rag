@@ -1,6 +1,6 @@
 import express from 'express'
-import { query } from './config/db'
 import { getBestProduct } from './services/rag.service'
+
 export const app = express()
   .use(express.json())
   .use(express.urlencoded({ extended: true }))
