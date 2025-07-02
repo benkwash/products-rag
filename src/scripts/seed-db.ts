@@ -1,11 +1,10 @@
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { join } from 'path'
 import { PDFExtract } from 'pdf.js-extract'
-import { connectDb, disconnectDb, query } from '../config/db.js'
+import { connectDb, disconnectDb, query } from '../config/db'
 
 const readDataFromPDF = async (fileName) => {
-  const __dirname = dirname(fileURLToPath(import.meta.url))
-  const filePath = join(__dirname, 'data', fileName)
+  const __dirname = process.cwd()
+  const filePath = join(__dirname, 'src', 'scripts', 'data', fileName)
   try {
     const pdfExtract = new PDFExtract()
     const data = await pdfExtract.extract(filePath, {})
@@ -89,20 +88,11 @@ const seedDatabase = async () => {
     await connectDb()
     console.log('Seeding database...')
 
-    // const openai = new OpenAI({
-    //   apiKey: env.openAIApiKey
-    // })
     for (const product of products) {
       const queryString = `
         INSERT INTO products (name, description, details_text, embeddings)
         VALUES ($1, $2, $3, ai.openai_embed('text-embedding-3-small', $4));
       `
-      // const response = await openai.embeddings.create({
-      //   model: 'text-embedding-3-small',
-      //   input: product.details_text.replace(/\n/g, ' ')
-      // })
-
-      // const embeddings = response.data[0].embedding
       const values = [
         product.name,
         product.description,
@@ -110,7 +100,6 @@ const seedDatabase = async () => {
         product.details_text.replace(/\n/g, ' ')
       ]
 
-      console.log({ values })
       await query(queryString, values)
     }
 
