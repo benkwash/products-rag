@@ -1,4 +1,5 @@
 import { connectDb, disconnectDb, query } from '../config/db'
+import { connectToMongoDB, disconnectFromMongoDb } from '../config/mongo-db'
 import { data as biegeAssure } from './data/biege-assure'
 import { data as enterprise } from './data/enterprise'
 import { data as glico } from './data/glico'
@@ -8,44 +9,58 @@ import { data as prudential } from './data/prudential'
 import { data as sic } from './data/sic'
 import { data as starlife } from './data/starlife'
 import { data as vanguard } from './data/vanguard'
+import { data as businesses } from './data/businesses'
 
-export const products = [
-  ...biegeAssure,
-  ...enterprise,
-  ...glico,
-  ...impact,
-  ...miLife,
-  ...prudential,
-  ...sic,
-  ...starlife,
-  ...vanguard
-]
+import { create as createBusiness } from '../models/businesses'
+import { createMany as createProducts } from '../models/products'
+
+import { createEmbedding } from '../utils/create-embedding'
+
+export const products = {
+  biege_assure: biegeAssure,
+  impact_life: impact,
+  mi_life: miLife,
+  enterprise,
+  glico,
+  prudential,
+  sic,
+  starlife,
+  vanguard
+}
 
 const seedDatabase = async () => {
   try {
-    await connectDb()
+    await connectToMongoDB()
     console.log('Seeding database...')
 
-    for (const product of products) {
-      const queryString = `
-        INSERT INTO products (name, description, details_text, embeddings)
-        VALUES ($1, $2, $3, ai.openai_embed('text-embedding-3-small', $4));
-      `
-      const values = [
-        product.name,
-        product.description,
-        product.text,
-        product.details_text.replace(/\n/g, ' ')
-      ]
+    for (const business of businesses) {
+      const createdBusiness = await createBusiness({
+        name: business.name,
+        description: business.description,
+        image: business.image
+      })
 
-      await query(queryString, values)
+      console.log({ createdBusiness })
+
+      const businessProducts = products[business.slug].map(
+        async ({ name, description, details_text }) => ({
+          name,
+          description,
+          businessId: createdBusiness._id,
+          embeddings: await createEmbedding(details_text)
+        })
+      )
+
+      const results = await Promise.all(businessProducts)
+      // console.log({ results })
+      const createdProducts = await createProducts(results)
     }
 
     console.log('Database seeded successfully')
   } catch (error) {
     console.error('Error seeding database:', error)
   } finally {
-    await disconnectDb()
+    await disconnectFromMongoDb()
   }
 }
 
