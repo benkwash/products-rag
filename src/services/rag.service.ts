@@ -1,5 +1,5 @@
 import { OpenAIEmbeddings, ChatOpenAI } from '@langchain/openai'
-import { PGVectorStore } from '@langchain/community/vectorstores/pgvector'
+import { MongoDBAtlasVectorSearch } from '@langchain/mongodb'
 import { PromptTemplate } from '@langchain/core/prompts'
 import {
   RunnableSequence,
@@ -7,7 +7,7 @@ import {
 } from '@langchain/core/runnables'
 import { JsonOutputParser } from '@langchain/core/output_parsers'
 import { Document } from '@langchain/core/documents'
-import { Pool } from 'pg'
+import { MongoClient } from 'mongodb'
 import { env } from '../config/env'
 
 interface ProductResponse {
@@ -19,13 +19,10 @@ const embeddings = new OpenAIEmbeddings({
   model: 'text-embedding-3-small'
 })
 
-const pool = new Pool({
-  user: env.db.user,
-  password: env.db.password,
-  host: env.db.host,
-  database: env.db.name,
-  port: parseInt(env.db.port, 10)
-})
+const client = new MongoClient(env.mongoDb.url)
+const collection = client
+  .db(env.mongoDb.dbName)
+  .collection(env.mongoDb.vectorCollectionName)
 
 const llm = new ChatOpenAI({ openAIApiKey: env.openAIApiKey })
 
@@ -50,29 +47,24 @@ const prompt = PromptTemplate.fromTemplate(`
 
 const formatDocs = (docs: Document[]) => {
   return docs
-    .map(
-      (doc) => `
-        Product ID: ${doc.id}
+    .map((doc) => {
+      console.log(doc)
+      return `
+        Product ID: ${doc.metadata._id}
         Product Name: ${doc.metadata.name}
         Description: ${doc.pageContent}
         `
-    )
+    })
     .join('\n\n')
 }
 
 export const getBestProduct = async (
   question: string
 ): Promise<ProductResponse> => {
-  const vectorStore = await PGVectorStore.initialize(embeddings, {
-    pool,
-    tableName: 'products',
-    columns: {
-      idColumnName: 'id',
-      vectorColumnName: 'embeddings',
-      contentColumnName: 'description',
-      metadataColumnName: 'metadata'
-    },
-    distanceStrategy: 'cosine'
+  const vectorStore = new MongoDBAtlasVectorSearch(embeddings, {
+    collection: collection,
+    indexName: 'products_vector_index',
+    embeddingKey: 'embeddings'
   })
 
   const retriever = vectorStore.asRetriever({
