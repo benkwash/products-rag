@@ -1,4 +1,5 @@
 import { ProductModel, Product } from './schema'
+import { Types } from 'mongoose'
 
 type NewProduct = Omit<Product, 'createdAt' | 'updatedAt'>
 
@@ -12,12 +13,80 @@ export const createMany = async (documents: Array<NewProduct>) => {
   return result.map((doc) => doc.toObject())
 }
 
-export const find = async (query) => {
-  const result = await ProductModel.find(query)
-  return result.map((doc) => doc.toObject())
-}
+export const getProduct = async (id: string) => {
+  const [product] = await ProductModel.aggregate([
+    {
+      $match: {
+        _id: new Types.ObjectId(id)
+      }
+    },
+    {
+      $lookup: {
+        from: 'businesses_rags',
+        localField: 'businessId',
+        foreignField: '_id',
+        as: 'business',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              image: 1,
+              description: 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      $unwind: '$business'
+    },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        business: 1,
+        description: 1
+      }
+    }
+  ])
 
-export const findById = async (id) => {
-  const result = await ProductModel.findById(id)
-  return result.toObject()
+  return product
+}
+export const getProducts = async (ids: Array<string>) => {
+  const products = await ProductModel.aggregate([
+    {
+      $match: {
+        _id: { $in: ids.map((id) => new Types.ObjectId(id)) }
+      }
+    },
+    {
+      $lookup: {
+        from: 'businesses_rags',
+        localField: 'businessId',
+        foreignField: '_id',
+        as: 'business',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              image: 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      $unwind: '$business'
+    },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        business: 1
+      }
+    }
+  ])
+  return products
 }

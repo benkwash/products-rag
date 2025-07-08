@@ -1,5 +1,6 @@
 import express from 'express'
 import { getBestProduct } from './services/rag.service'
+import { getProductService } from './services/get-products'
 
 export const app = express()
   .use(express.json())
@@ -17,6 +18,18 @@ export const app = express()
       const results = await getBestProduct(searchQuery as string)
 
       res.status(200).json(results)
+    } catch (error) {
+      console.error('Error processing search:', error)
+      res.status(500).send('Internal Server Error')
+    }
+  })
+  .get('/products/:id', async (req, res) => {
+    const id = req.params.id
+
+    try {
+      const product = await getProductService(id)
+
+      res.status(200).json(product)
     } catch (error) {
       console.error('Error processing search:', error)
       res.status(500).send('Internal Server Error')

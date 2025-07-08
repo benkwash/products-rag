@@ -9,6 +9,7 @@ import { JsonOutputParser } from '@langchain/core/output_parsers'
 import { Document } from '@langchain/core/documents'
 import { MongoClient } from 'mongodb'
 import { env } from '../config/env'
+import { getProducts } from '../models/products'
 
 interface ProductResponse {
   id: string
@@ -26,7 +27,7 @@ const collection = client
 
 const llm = new ChatOpenAI({ openAIApiKey: env.openAIApiKey })
 
-const parser = new JsonOutputParser<ProductResponse>()
+const parser = new JsonOutputParser<Array<ProductResponse>>()
 
 const prompt = PromptTemplate.fromTemplate(`
   You are an expert assistant for an insurance company.
@@ -48,7 +49,6 @@ const prompt = PromptTemplate.fromTemplate(`
 const formatDocs = (docs: Document[]) => {
   return docs
     .map((doc) => {
-      console.log(doc)
       return `
         Product ID: ${doc.metadata._id}
         Product Name: ${doc.metadata.name}
@@ -58,9 +58,7 @@ const formatDocs = (docs: Document[]) => {
     .join('\n\n')
 }
 
-export const getBestProduct = async (
-  question: string
-): Promise<ProductResponse> => {
+export const getBestProduct = async (question: string) => {
   const vectorStore = new MongoDBAtlasVectorSearch(embeddings, {
     collection: collection,
     indexName: 'products_vector_index',
@@ -85,5 +83,5 @@ export const getBestProduct = async (
 
   const result = await chain.invoke(question)
 
-  return result
+  return getProducts(result.map((product) => product.id))
 }
