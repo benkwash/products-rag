@@ -1,8 +1,10 @@
 import express from 'express'
+import cors from 'cors'
 import { getBestProduct } from './services/rag.service'
 import { getProductService } from './services/get-products'
 
 export const app = express()
+  .use(cors())
   .use(express.json())
   .use(express.urlencoded({ extended: true }))
   .get('/health', (req, res) => {
@@ -10,6 +12,7 @@ export const app = express()
   })
   .get('/search', async (req, res) => {
     const searchQuery = req.query.search
+
     try {
       if (!searchQuery || typeof searchQuery !== 'string') {
         res.status(400).send('Invalid search query')
@@ -34,4 +37,7 @@ export const app = express()
       console.error('Error processing search:', error)
       res.status(500).send('Internal Server Error')
     }
+  })
+  .use((req, res) => {
+    res.status(404).send('Not Found')
   })
