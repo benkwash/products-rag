@@ -1,10 +1,10 @@
 import 'dotenv/config'
 import { app } from './app'
-import { connectDb, disconnectDb } from './config/db'
+import { connectToMongoDB, disconnectFromMongoDb } from './config/mongo-db'
 
 const startServer = async (): Promise<void> => {
   try {
-    await connectDb()
+    await connectToMongoDB()
     console.log('Database connected successfully')
 
     const PORT = 3000
@@ -13,7 +13,7 @@ const startServer = async (): Promise<void> => {
     })
   } catch (error) {
     console.error('Error starting server:', error)
-    await disconnectDb()
+    await disconnectFromMongoDb()
     process.exit(1) // Exit the process with failure
   }
 }
