@@ -5,15 +5,19 @@ import {
   RunnableSequence,
   RunnablePassthrough
 } from '@langchain/core/runnables'
-import { JsonOutputParser } from '@langchain/core/output_parsers'
+import {
+  JsonOutputParser,
+  StringOutputParser
+} from '@langchain/core/output_parsers'
 import { Document } from '@langchain/core/documents'
 import { MongoClient } from 'mongodb'
 import { env } from '../config/env'
 import { getProducts } from '../models/products'
+import { setCache, getCache } from '../utils/cache'
 
-interface ProductResponse {
-  id: string
-  name: string
+interface FinalResponse {
+  summary: string
+  products: any[]
 }
 
 const embeddings = new OpenAIEmbeddings({
@@ -27,38 +31,87 @@ const collection = client
 
 const llm = new ChatOpenAI({ openAIApiKey: env.openAIApiKey })
 
-const parser = new JsonOutputParser<Array<ProductResponse>>()
+const productParser = new JsonOutputParser<Array<string>>()
+const summaryParser = new StringOutputParser()
 
-const prompt = PromptTemplate.fromTemplate(`
+const productPrompt = PromptTemplate.fromTemplate(`
   You are an expert assistant for an insurance company.
-  Based on the following context of available insurance products, identify ALL products that are a good match for the user's question.
+
+  Based on the user's question and the provided list of insurance products, identify which products match the user's needs.
+
+  Return ONLY a valid JSON object in this format:
+
+  ["id1", "id2", "id3"]
   
-  If no relevant product is found in the context, return an empty JSON array.
-  Otherwise, return a JSON array of objects. Each object in the array should have the "id" and "name" of a matching product.
-  Include all products from the context that reasonably match the user's query.
 
-  Return ONLY the JSON object and nothing else.
+  - Only include product IDs that are relevant.
+  - If no products are relevant, return an empty array: []
+  - Do NOT include any text or explanation outside the JSON object.
 
-  {format_instructions}
+  Context:
+  {context}
 
-  Context: {context}
+  Question:
+  {question}
+`)
 
-  Question: {question}
+const summaryPrompt = PromptTemplate.fromTemplate(`
+  You are a helpful assistant working for an insurance company.
+
+  You are given a list of insurance products and a user question. Your task is to generate a well-structured **Markdown summary** in this exact format:
+
+  - Begin with 1–2 paragraphs that:
+    - Explain how the listed insurance products **(mention each by name)** address the user's needs
+    - Refer directly to the **user’s question**
+
+  - Then list the products in Markdown bullets:
+    - Each **product name should be bolded**
+    - Follow with 2–4 key features as sub-bullets (keep them concise)
+
+  Your response **must include all products provided**.
+
+  Return the summary string and Nothing else.
+
+  User Question:
+  {question}
+
+  Products:
+  {formattedProducts}
 `)
 
 const formatDocs = (docs: Document[]) => {
   return docs
     .map((doc) => {
       return `
-        Product ID: ${doc.metadata._id}
+        Product ID: ${doc.metadata._id.toString()}
         Product Name: ${doc.metadata.name}
-        Description: ${doc.pageContent}
-        `
+        Description: ${doc.metadata.description}
+      `
     })
     .join('\n\n')
 }
 
-export const getBestProduct = async (question: string) => {
+const formatProducts = (products: any[]) => {
+  return products
+    .map((product, index) => {
+      // console.log({ product: product._id, index })
+      return `
+        Product ID: ${product._id.toString()}
+        Product Name: ${product.name}
+        Description: ${product.description}
+      `
+    })
+    .join('\n\n')
+}
+
+export const getBestProduct = async (
+  question: string
+): Promise<FinalResponse> => {
+  // const cachedResults = getCache(question)
+  // if (cachedResults) {
+  //   return cachedResults as FinalResponse
+  // }
+
   const vectorStore = new MongoDBAtlasVectorSearch(embeddings, {
     collection: collection,
     indexName: 'products_vector_index',
@@ -70,18 +123,44 @@ export const getBestProduct = async (question: string) => {
     k: 10
   })
 
-  const chain = RunnableSequence.from([
-    {
-      context: retriever.pipe(formatDocs),
-      question: new RunnablePassthrough(),
-      format_instructions: () => parser.getFormatInstructions()
-    },
-    prompt,
+  const docs = await retriever.invoke(question)
+  const context = formatDocs(docs)
+
+  const productsChain = RunnableSequence.from([
+    productPrompt,
     llm,
-    parser
+    productParser
   ])
 
-  const result = await chain.invoke(question)
+  const result = await productsChain.invoke({ question, context })
 
-  return getProducts(result.map((product) => product.id))
+  // console.log({ result })
+  const products = await getProducts(result)
+
+  let summary =
+    "No matching products were identified based on the user's question."
+
+  if (products && products.length > 0) {
+    const summaryChain = RunnableSequence.from([
+      summaryPrompt,
+      llm,
+      summaryParser
+    ])
+
+    const summaryResult = await summaryChain.invoke({
+      formattedProducts: formatProducts(products),
+      question
+    })
+
+    // console.log({ summaryResult })
+    summary = summaryResult
+  }
+
+  const finalResponse: FinalResponse = {
+    summary,
+    products
+  }
+  setCache(question, finalResponse)
+
+  return finalResponse
 }

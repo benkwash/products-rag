@@ -84,6 +84,7 @@ export const getProducts = async (ids: Array<string>) => {
       $project: {
         _id: 1,
         name: 1,
+        description: 1,
         business: 1
       }
     }
