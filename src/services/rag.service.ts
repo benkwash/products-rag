@@ -94,7 +94,6 @@ const formatDocs = (docs: Document[]) => {
 const formatProducts = (products: any[]) => {
   return products
     .map((product, index) => {
-      // console.log({ product: product._id, index })
       return `
         Product ID: ${product._id.toString()}
         Product Name: ${product.name}
@@ -107,10 +106,10 @@ const formatProducts = (products: any[]) => {
 export const getBestProduct = async (
   question: string
 ): Promise<FinalResponse> => {
-  // const cachedResults = getCache(question)
-  // if (cachedResults) {
-  //   return cachedResults as FinalResponse
-  // }
+  const cachedResults = getCache(question)
+  if (cachedResults) {
+    return cachedResults as FinalResponse
+  }
 
   const vectorStore = new MongoDBAtlasVectorSearch(embeddings, {
     collection: collection,
@@ -134,7 +133,6 @@ export const getBestProduct = async (
 
   const result = await productsChain.invoke({ question, context })
 
-  // console.log({ result })
   const products = await getProducts(result)
 
   let summary =
@@ -152,7 +150,6 @@ export const getBestProduct = async (
       question
     })
 
-    // console.log({ summaryResult })
     summary = summaryResult
   }
 
