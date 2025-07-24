@@ -5,15 +5,17 @@ import {
   RunnableSequence,
   RunnablePassthrough
 } from '@langchain/core/runnables'
-import { JsonOutputParser } from '@langchain/core/output_parsers'
+import { StructuredOutputParser } from '@langchain/core/output_parsers'
 import { Document } from '@langchain/core/documents'
 import { MongoClient } from 'mongodb'
 import { env } from '../config/env'
 import { getProducts } from '../models/products'
+import { setCache, getCache } from '../utils/cache'
+import { z } from 'zod'
 
-interface ProductResponse {
-  id: string
-  name: string
+interface FinalResponse {
+  summary: string
+  products: any[]
 }
 
 const embeddings = new OpenAIEmbeddings({
@@ -27,38 +29,79 @@ const collection = client
 
 const llm = new ChatOpenAI({ openAIApiKey: env.openAIApiKey })
 
-const parser = new JsonOutputParser<Array<ProductResponse>>()
+const responseSchema = z.object({
+  productIds: z.array(z.string()),
+  summary: z.string(),
+  details: z.string()
+})
 
-const prompt = PromptTemplate.fromTemplate(`
-  You are an expert assistant for an insurance company.
-  Based on the following context of available insurance products, identify ALL products that are a good match for the user's question.
-  
-  If no relevant product is found in the context, return an empty JSON array.
-  Otherwise, return a JSON array of objects. Each object in the array should have the "id" and "name" of a matching product.
-  Include all products from the context that reasonably match the user's query.
+const productParser = StructuredOutputParser.fromZodSchema(responseSchema)
 
-  Return ONLY the JSON object and nothing else.
+const productPrompt = PromptTemplate.fromTemplate(`
+  You are an expert AI insurance analyst. Your purpose is to precisely match a user's needs to the right insurance products and clearly explain your recommendations.
 
-  {format_instructions}
+  Analyze the user's question and the provided context. Identify all relevant products and rank them by relevance, from most to least relevant.
 
-  Context: {context}
+  Return ONLY a valid Javascript object in this format:
 
-  Question: {question}
+  {{
+    "productIds": ["best_match_id", "good_match_id1"],
+    "summary": "A brief, encouraging summary that names the top recommended product and its main benefit for the user in the \`productIds\` array.",
+    "details": "A single string containing a markdown-formatted list explaining the reason for each product recommendation."
+  }}
+
+  **Instructions:**
+
+  1.  **\`productIds\`**: The array should be ordered by relevance (most to least). The first ID MUST be the single best match. 
+  2.  **\`summary\`**: 
+      * This should be a short, engaging sentence. Start by highlighting the top product and how it addresses the user's primary need.
+      * The information provided in the summary should always be based on the products returned in the \`productIds\` array. Do not include any products that are not in the productIds array.
+  3.  **\`details\`**: This must be a single string formatted with markdown.
+      * Create a bulleted list using asterisks (\`*\`) or hyphens (\`-\`).
+      * For each bullet point, briefly state the key benefit of a recommended product that addresses the user's query. It's helpful to bold the product name or key feature.
+      * Ensure the order of reasons in the list matches the order of IDs in \`productIds\`.
+      * The information provided in the details should always be based on the products returned in the \`productIds\` array. Do not include any products that are not in the productIds array.
+
+  **Example Scenario:**
+  * **Question**: "I need car insurance for my new electric vehicle. I'm worried about battery issues."
+  * **Context**: Product A has specific EV battery coverage. Product B has a great roadside assistance program.
+
+  **Example Javascript Object Output:**
+
+  \`\`\`js object
+  {{
+    "productIds": ["EV_Ultra_88", "Auto_Plus_55"],
+    "summary": "The EV Ultra plan is the perfect fit for your new electric vehicle, offering specialized coverage for peace of mind.",
+    "details": "* **EV Ultra Plan**: Includes specific coverage for **EV battery failure**, which directly addresses your concern.\n* **Auto Plus Plan**: Offers our top-rated **24/7 roadside assistance** program and comprehensive accident coverage."
+  }}
+
+  Context:
+  {context}
+
+  Question:
+  {question}
 `)
 
 const formatDocs = (docs: Document[]) => {
   return docs
     .map((doc) => {
       return `
-        Product ID: ${doc.metadata._id}
+        Product ID: ${doc.metadata._id.toString()}
         Product Name: ${doc.metadata.name}
-        Description: ${doc.pageContent}
-        `
+        Description: ${doc.metadata.description}
+      `
     })
     .join('\n\n')
 }
 
-export const getBestProduct = async (question: string) => {
+export const getBestProduct = async (
+  question: string
+): Promise<FinalResponse> => {
+  const cachedResults = getCache(question)
+  if (cachedResults) {
+    return cachedResults as FinalResponse
+  }
+
   const vectorStore = new MongoDBAtlasVectorSearch(embeddings, {
     collection: collection,
     indexName: 'products_vector_index',
@@ -70,18 +113,31 @@ export const getBestProduct = async (question: string) => {
     k: 10
   })
 
-  const chain = RunnableSequence.from([
+  const productsChain = RunnableSequence.from([
     {
       context: retriever.pipe(formatDocs),
       question: new RunnablePassthrough(),
-      format_instructions: () => parser.getFormatInstructions()
+      format_instructions: () => productParser.getFormatInstructions()
     },
-    prompt,
+    productPrompt,
     llm,
-    parser
+    productParser
   ])
 
-  const result = await chain.invoke(question)
+  const result = await productsChain.invoke(question)
 
-  return getProducts(result.map((product) => product.id))
+  console.log({ result })
+
+  const products = await getProducts(result.productIds)
+
+  const summary = result.summary + `\n\n` + result.details
+
+  const finalResponse: FinalResponse = {
+    summary,
+    products
+  }
+
+  setCache(question, finalResponse)
+
+  return finalResponse
 }

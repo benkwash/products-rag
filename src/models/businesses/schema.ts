@@ -4,6 +4,7 @@ export type Business = {
   name: string
   description: string
   image?: string
+  website: string
   createdAt: Date
   updatedAt: Date
 }
@@ -13,7 +14,8 @@ const BusinessSchema: Schema = new Schema<BusinessDocument>(
   {
     name: { type: String, required: true },
     description: { type: String, required: true },
-    image: { type: String, required: false }
+    image: { type: String, required: false },
+    website: { type: String, required: true }
   },
   {
     timestamps: true

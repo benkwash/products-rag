@@ -13,6 +13,17 @@ export const createMany = async (documents: Array<NewProduct>) => {
   return result.map((doc) => doc.toObject())
 }
 
+export const updateByName = async (
+  name: string,
+  document: Partial<Product>
+) => {
+  const result = await ProductModel.findOneAndUpdate({ name }, document, {
+    new: true
+  })
+
+  return result?.toObject()
+}
+
 export const getProduct = async (id: string) => {
   const [product] = await ProductModel.aggregate([
     {
@@ -32,7 +43,8 @@ export const getProduct = async (id: string) => {
               _id: 1,
               name: 1,
               image: 1,
-              description: 1
+              description: 1,
+              website: 1
             }
           }
         ]
@@ -45,8 +57,10 @@ export const getProduct = async (id: string) => {
       $project: {
         _id: 1,
         name: 1,
-        business: 1,
-        description: 1
+        description: 1,
+        imageUrl: 1,
+        website: 1,
+        business: 1
       }
     }
   ])
@@ -54,10 +68,11 @@ export const getProduct = async (id: string) => {
   return product
 }
 export const getProducts = async (ids: Array<string>) => {
+  const objectIds = ids.map((id) => new Types.ObjectId(id))
   const products = await ProductModel.aggregate([
     {
       $match: {
-        _id: { $in: ids.map((id) => new Types.ObjectId(id)) }
+        _id: { $in: objectIds }
       }
     },
     {
@@ -84,9 +99,21 @@ export const getProducts = async (ids: Array<string>) => {
       $project: {
         _id: 1,
         name: 1,
+        description: 1,
         business: 1
       }
     }
   ])
-  return products
+
+  const productsMap = new Map()
+
+  products.forEach((product) => {
+    productsMap.set(product._id.toString(), product)
+  })
+
+  const orderedProducts = ids
+    .map((id) => productsMap.get(id))
+    .filter((product) => product !== undefined)
+
+  return orderedProducts
 }
