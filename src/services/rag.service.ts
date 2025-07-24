@@ -5,15 +5,13 @@ import {
   RunnableSequence,
   RunnablePassthrough
 } from '@langchain/core/runnables'
-import {
-  JsonOutputParser,
-  StringOutputParser
-} from '@langchain/core/output_parsers'
+import { StructuredOutputParser } from '@langchain/core/output_parsers'
 import { Document } from '@langchain/core/documents'
 import { MongoClient } from 'mongodb'
 import { env } from '../config/env'
 import { getProducts } from '../models/products'
 import { setCache, getCache } from '../utils/cache'
+import { z } from 'zod'
 
 interface FinalResponse {
   summary: string
@@ -31,52 +29,57 @@ const collection = client
 
 const llm = new ChatOpenAI({ openAIApiKey: env.openAIApiKey })
 
-const productParser = new JsonOutputParser<Array<string>>()
-const summaryParser = new StringOutputParser()
+const responseSchema = z.object({
+  productIds: z.array(z.string()),
+  summary: z.string(),
+  details: z.string()
+})
+
+const productParser = StructuredOutputParser.fromZodSchema(responseSchema)
 
 const productPrompt = PromptTemplate.fromTemplate(`
-  You are an expert assistant for an insurance company.
+  You are an expert AI insurance analyst. Your purpose is to precisely match a user's needs to the right insurance products and clearly explain your recommendations.
 
-  Based on the user's question and the provided list of insurance products, identify which products match the user's needs.
+  Analyze the user's question and the provided context. Identify all relevant products and rank them by relevance, from most to least relevant.
 
-  Return ONLY a valid JSON object in this format:
+  Return ONLY a valid Javascript object in this format:
 
-  ["id1", "id2", "id3"]
-  
+  {{
+    "productIds": ["best_match_id", "good_match_id1"],
+    "summary": "A brief, encouraging summary that names the top recommended product and its main benefit for the user in the \`productIds\` array.",
+    "details": "A single string containing a markdown-formatted list explaining the reason for each product recommendation."
+  }}
 
-  - Only include product IDs that are relevant.
-  - If no products are relevant, return an empty array: []
-  - Do NOT include any text or explanation outside the JSON object.
+  **Instructions:**
+
+  1.  **\`productIds\`**: The array should be ordered by relevance (most to least). The first ID MUST be the single best match. 
+  2.  **\`summary\`**: 
+      * This should be a short, engaging sentence. Start by highlighting the top product and how it addresses the user's primary need.
+      * The information provided in the summary should always be based on the products returned in the \`productIds\` array. Do not include any products that are not in the productIds array.
+  3.  **\`details\`**: This must be a single string formatted with markdown.
+      * Create a bulleted list using asterisks (\`*\`) or hyphens (\`-\`).
+      * For each bullet point, briefly state the key benefit of a recommended product that addresses the user's query. It's helpful to bold the product name or key feature.
+      * Ensure the order of reasons in the list matches the order of IDs in \`productIds\`.
+      * The information provided in the details should always be based on the products returned in the \`productIds\` array. Do not include any products that are not in the productIds array.
+
+  **Example Scenario:**
+  * **Question**: "I need car insurance for my new electric vehicle. I'm worried about battery issues."
+  * **Context**: Product A has specific EV battery coverage. Product B has a great roadside assistance program.
+
+  **Example Javascript Object Output:**
+
+  \`\`\`js object
+  {{
+    "productIds": ["EV_Ultra_88", "Auto_Plus_55"],
+    "summary": "The EV Ultra plan is the perfect fit for your new electric vehicle, offering specialized coverage for peace of mind.",
+    "details": "* **EV Ultra Plan**: Includes specific coverage for **EV battery failure**, which directly addresses your concern.\n* **Auto Plus Plan**: Offers our top-rated **24/7 roadside assistance** program and comprehensive accident coverage."
+  }}
 
   Context:
   {context}
 
   Question:
   {question}
-`)
-
-const summaryPrompt = PromptTemplate.fromTemplate(`
-  You are a helpful assistant working for an insurance company.
-
-  You are given a list of insurance products and a user question. Your task is to generate a well-structured **Markdown summary** in this exact format:
-
-  - Begin with 1–2 paragraphs that:
-    - Explain how the listed insurance products **(mention each by name)** address the user's needs
-    - Refer directly to the **user’s question**
-
-  - Then list the products in Markdown bullets:
-    - Each **product name should be bolded**
-    - Follow with 2–4 key features as sub-bullets (keep them concise)
-
-  Your response **must include all products provided**.
-
-  Return the summary string and Nothing else.
-
-  User Question:
-  {question}
-
-  Products:
-  {formattedProducts}
 `)
 
 const formatDocs = (docs: Document[]) => {
@@ -86,18 +89,6 @@ const formatDocs = (docs: Document[]) => {
         Product ID: ${doc.metadata._id.toString()}
         Product Name: ${doc.metadata.name}
         Description: ${doc.metadata.description}
-      `
-    })
-    .join('\n\n')
-}
-
-const formatProducts = (products: any[]) => {
-  return products
-    .map((product, index) => {
-      return `
-        Product ID: ${product._id.toString()}
-        Product Name: ${product.name}
-        Description: ${product.description}
       `
     })
     .join('\n\n')
@@ -122,41 +113,30 @@ export const getBestProduct = async (
     k: 10
   })
 
-  const docs = await retriever.invoke(question)
-  const context = formatDocs(docs)
-
   const productsChain = RunnableSequence.from([
+    {
+      context: retriever.pipe(formatDocs),
+      question: new RunnablePassthrough(),
+      format_instructions: () => productParser.getFormatInstructions()
+    },
     productPrompt,
     llm,
     productParser
   ])
 
-  const result = await productsChain.invoke({ question, context })
+  const result = await productsChain.invoke(question)
 
-  const products = await getProducts(result)
+  console.log({ result })
 
-  let summary =
-    "No matching products were identified based on the user's question."
+  const products = await getProducts(result.productIds)
 
-  if (products && products.length > 0) {
-    const summaryChain = RunnableSequence.from([
-      summaryPrompt,
-      llm,
-      summaryParser
-    ])
-
-    const summaryResult = await summaryChain.invoke({
-      formattedProducts: formatProducts(products),
-      question
-    })
-
-    summary = summaryResult
-  }
+  const summary = result.summary + `\n\n` + result.details
 
   const finalResponse: FinalResponse = {
     summary,
     products
   }
+
   setCache(question, finalResponse)
 
   return finalResponse

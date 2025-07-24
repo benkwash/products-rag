@@ -5,6 +5,8 @@ export type Product = {
   description: string
   businessId: ObjectId
   embeddings: number[]
+  website: string
+  imageUrl?: string
   //.... other fields for the real app
   createdAt: Date
   updatedAt: Date
@@ -21,7 +23,9 @@ const ProductSchema: Schema = new Schema<ProductDocument>(
       required: true,
       ref: 'businesses_rags'
     },
-    embeddings: { type: [Number], required: true }
+    embeddings: { type: [Number], required: true },
+    website: { type: String, required: true },
+    imageUrl: { type: String, required: false }
   },
   {
     timestamps: true
